@@ -1,0 +1,331 @@
+Index: i18npool/source/registerservices/registerservices.cxx
+===================================================================
+--- i18npool/source/registerservices/registerservices.cxx	(revision 267392)
++++ i18npool/source/registerservices/registerservices.cxx	(working copy)
+@@ -60,6 +60,7 @@
+ #include <calendar_gregorian.hxx>
+ #include <calendar_hijri.hxx>
+ #include <calendar_jewish.hxx>
++#include <calendar_persian.hxx>
+ 
+ #define BREAKITERATOR_ALL
+ #include <breakiteratorImpl.hxx>
+@@ -145,6 +146,7 @@
+ IMPL_CREATEINSTANCE( Calendar_gengou )
+ IMPL_CREATEINSTANCE( Calendar_ROC )
+ IMPL_CREATEINSTANCE( Calendar_hijri )
++IMPL_CREATEINSTANCE( Calendar_persian)
+ IMPL_CREATEINSTANCE( Calendar_jewish )
+ IMPL_CREATEINSTANCE( Calendar_buddhist )
+ IMPL_CREATEINSTANCE_MSF( BreakIteratorImpl )
+@@ -350,6 +352,9 @@
+     {   "com.sun.star.i18n.Calendar_hijri",
+         "com.sun.star.i18n.Calendar_hijri",
+         &Calendar_hijri_CreateInstance },
++    {   "com.sun.star.i18n.Calendar_persian",
++        "com.sun.star.i18n.Calendar_persian",
++        &Calendar_persian_CreateInstance },
+     {   "com.sun.star.i18n.Calendar_jewish",
+         "com.sun.star.i18n.Calendar_jewish",
+         &Calendar_jewish_CreateInstance },
+Index: i18npool/source/calendar/makefile.mk
+===================================================================
+--- i18npool/source/calendar/makefile.mk	(revision 267392)
++++ i18npool/source/calendar/makefile.mk	(working copy)
+@@ -46,7 +46,8 @@
+ 			$(SLO)$/calendarImpl.obj  \
+ 			$(SLO)$/calendar_gregorian.obj \
+ 			$(SLO)$/calendar_hijri.obj \
+-			$(SLO)$/calendar_jewish.obj
++			$(SLO)$/calendar_jewish.obj \
++			$(SLO)$/calendar_persian.obj
+ #
+ 
+ # --- Targets ------------------------------------------------------
+Index: i18npool/source/calendar/calendar_persian.cxx
+===================================================================
+--- i18npool/source/calendar/calendar_persian.cxx	(revision 0)
++++ i18npool/source/calendar/calendar_persian.cxx	(revision 0)
+@@ -0,0 +1,243 @@
++/*************************************************************************
++ *
++ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
++ * 
++ * Copyright 2008 by Sun Microsystems, Inc.
++ *
++ * OpenOffice.org - a multi-platform office productivity suite
++ *
++ * $RCSfile: calendar_hijri.cxx,v $
++ * $Revision: 1.11 $
++ *
++ * This file is part of OpenOffice.org.
++ *
++ * OpenOffice.org is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License version 3
++ * only, as published by the Free Software Foundation.
++ *
++ * OpenOffice.org is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License version 3 for more details
++ * (a copy is included in the LICENSE file that accompanied this code).
++ *
++ * You should have received a copy of the GNU Lesser General Public License
++ * version 3 along with OpenOffice.org.  If not, see
++ * <http://www.openoffice.org/license.html>
++ * for a copy of the LGPLv3 License.
++ *
++ ************************************************************************/
++
++// MARKER(update_precomp.py): autogen include statement, do not remove
++#include "precompiled_i18npool.hxx"
++
++#include <math.h>
++#include <stdio.h>
++
++#include "calendar_persian.hxx"
++
++using namespace ::com::sun::star::uno;
++using namespace ::com::sun::star::lang;
++using namespace ::com::sun::star::i18n;
++using namespace ::rtl;
++
++#define ERROR RuntimeException()
++
++/*
++ * The conversion routines used here, are from http://www.farsiweb.info/jalali/jalali.c
++ */
++/* prototypes */
++
++void gregorian_to_jalali(/* output */ sal_Int32 *j_y, sal_Int32 *j_m, sal_Int32 *j_d,
++                         /*  input */ sal_Int32  g_y, sal_Int32  g_m, sal_Int32  g_d);
++void jalali_to_gregorian(/* output */ sal_Int32 *g_y, sal_Int32 *g_m, sal_Int32 *g_d,
++                         /*  input */ sal_Int32  j_y, sal_Int32  j_m, sal_Int32  j_d);
++
++/* implementation */
++
++#include <stdlib.h>
++ 
++sal_Int32 g_days_in_month[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
++sal_Int32 j_days_in_month[12] = {31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29};
++
++void gregorian_to_jalali(sal_Int32 *j_y, sal_Int32 *j_m, sal_Int32 *j_d,
++                         sal_Int32  g_y, sal_Int32  g_m, sal_Int32  g_d)
++{
++   sal_Int32 gy, gm, gd;
++   sal_Int32 jy, jm, jd;
++   long g_day_no, j_day_no;
++   sal_Int32 j_np;
++ 
++   sal_Int32 i;
++
++   gy = g_y-1600;
++   gm = g_m-1;
++   gd = g_d-1;
++ 
++   g_day_no = 365*gy+(gy+3)/4-(gy+99)/100+(gy+399)/400;
++   for (i=0;i<gm;++i)
++      g_day_no += g_days_in_month[i];
++   if (gm>1 && ((gy%4==0 && gy%100!=0) || (gy%400==0)))
++      /* leap and after Feb */
++      ++g_day_no;
++   g_day_no += gd;
++ 
++   j_day_no = g_day_no-79;
++ 
++   j_np = j_day_no / 12053;
++   j_day_no %= 12053;
++ 
++   jy = 979+33*j_np+4*(j_day_no/1461);
++   j_day_no %= 1461;
++ 
++   if (j_day_no >= 366) {
++      jy += (j_day_no-1)/365;
++      j_day_no = (j_day_no-1)%365;
++   }
++ 
++   for (i = 0; i < 11 && j_day_no >= j_days_in_month[i]; ++i) {
++      j_day_no -= j_days_in_month[i];
++   }
++   jm = i+1;
++   jd = j_day_no+1;
++   *j_y = jy;
++   *j_m = jm;
++   *j_d = jd;
++}
++
++void jalali_to_gregorian(sal_Int32 *g_y, sal_Int32 *g_m, sal_Int32 *g_d,
++                         sal_Int32  j_y, sal_Int32  j_m, sal_Int32  j_d)
++{
++   sal_Int32 gy, gm, gd;
++   sal_Int32 jy, jm, jd;
++   long g_day_no, j_day_no;
++   sal_Int32 leap;
++
++   sal_Int32 i;
++
++   jy = j_y-979;
++   jm = j_m-1;
++   jd = j_d-1;
++
++   j_day_no = 365*jy + (jy/33)*8 + (jy%33+3)/4;
++   for (i=0; i < jm; ++i)
++      j_day_no += j_days_in_month[i];
++
++   j_day_no += jd;
++
++   g_day_no = j_day_no+79;
++
++   gy = 1600 + 400*(g_day_no/146097); /* 146097 = 365*400 + 400/4 - 400/100 + 400/400 */
++   g_day_no = g_day_no % 146097;
++
++   leap = 1;
++   if (g_day_no >= 36525) /* 36525 = 365*100 + 100/4 */
++   {
++      g_day_no--;
++      gy += 100*(g_day_no/36524); /* 36524 = 365*100 + 100/4 - 100/100 */
++      g_day_no = g_day_no % 36524;
++      
++      if (g_day_no >= 365)
++         g_day_no++;
++      else
++         leap = 0;
++   }
++
++   gy += 4*(g_day_no/1461); /* 1461 = 365*4 + 4/4 */
++   g_day_no %= 1461;
++
++   if (g_day_no >= 366) {
++      leap = 0;
++
++      g_day_no--;
++      gy += g_day_no/365;
++      g_day_no = g_day_no % 365;
++   }
++
++   for (i = 0; g_day_no >= g_days_in_month[i] + (i == 1 && leap); i++)
++      g_day_no -= g_days_in_month[i] + (i == 1 && leap);
++   gm = i+1;
++   gd = g_day_no+1;
++
++   *g_y = gy;
++   *g_m = gm;
++   *g_d = gd;
++}
++
++
++// not used
++//static UErrorCode status; // status is shared in all calls to Calendar, it has to be reset for each call.
++
++Calendar_persian::Calendar_persian()
++{
++	cCalendar = "com.sun.star.i18n.Calendar_persian";
++}
++
++
++
++
++// map field value from gregorian calendar to other calendar, it can be overwritten by derived class.
++void SAL_CALL Calendar_persian::mapFromGregorian() throw(RuntimeException)
++{
++	sal_Int32 month, day, year;
++
++	day = fieldValue[CalendarFieldIndex::DAY_OF_MONTH];
++	month = fieldValue[CalendarFieldIndex::MONTH] + 1;
++	year = fieldValue[CalendarFieldIndex::YEAR];
++	if (fieldValue[CalendarFieldIndex::ERA] == 0)
++	    year *= -1;
++
++	sal_Int32 j_y = 0, j_m = 0, j_d = 0;
++	gregorian_to_jalali(&j_y, &j_m, &j_d, year, month, day);
++
++	fieldValue[CalendarFieldIndex::ERA] = (sal_Int16) j_y <= 0 ? 0 : 1;
++	fieldValue[CalendarFieldIndex::MONTH] = sal::static_int_cast<sal_Int16> (j_m - 1);
++	fieldValue[CalendarFieldIndex::DAY_OF_MONTH] = (sal_Int16) j_d;
++	fieldValue[CalendarFieldIndex::YEAR] = (sal_Int16) abs(j_y);
++}
++
++#define FIELDS  ((1 << CalendarFieldIndex::ERA) | (1 << CalendarFieldIndex::YEAR) | (1 << CalendarFieldIndex::MONTH) | (1 << CalendarFieldIndex::DAY_OF_MONTH)) 
++// map field value from other calendar to gregorian calendar, it should be implemented. 
++void SAL_CALL Calendar_persian::mapToGregorian() throw(RuntimeException)
++{
++	sal_Int32 g_y, g_m, g_d;
++	if (fieldSet & FIELDS) {
++	    sal_Int32 day = fieldSetValue[CalendarFieldIndex::DAY_OF_MONTH];
++	    sal_Int32 month = fieldSetValue[CalendarFieldIndex::MONTH] + 1;
++	    sal_Int32 year = fieldSetValue[CalendarFieldIndex::YEAR];
++	    if (fieldSetValue[CalendarFieldIndex::ERA] == 0)
++				year *= -1;
++	
++	    jalali_to_gregorian(&g_y, &g_m, &g_d, year, month, day);
++
++	    fieldSetValue[CalendarFieldIndex::ERA] = g_y <= 0 ? 0 : 1;
++	    fieldSetValue[CalendarFieldIndex::MONTH] = sal::static_int_cast<sal_Int16>(g_m - 1);
++	    fieldSetValue[CalendarFieldIndex::DAY_OF_MONTH] = (sal_Int16) g_d;
++	    fieldSetValue[CalendarFieldIndex::YEAR] = (sal_Int16) abs(g_y);
++	    fieldSet |= FIELDS;
++	}
++}
++
+Index: i18npool/inc/calendar_persian.hxx
+===================================================================
+--- i18npool/inc/calendar_persian.hxx	(revision 0)
++++ i18npool/inc/calendar_persian.hxx	(revision 0)
+@@ -0,0 +1,62 @@
++/*************************************************************************
++ *
++ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
++ * 
++ * Copyright 2008 by Sun Microsystems, Inc.
++ *
++ * OpenOffice.org - a multi-platform office productivity suite
++ *
++ * $RCSfile: calendar_hijri.cxx,v $
++ * $Revision: 1.11 $
++ *
++ * This file is part of OpenOffice.org.
++ *
++ * OpenOffice.org is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License version 3
++ * only, as published by the Free Software Foundation.
++ *
++ * OpenOffice.org is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License version 3 for more details
++ * (a copy is included in the LICENSE file that accompanied this code).
++ *
++ * You should have received a copy of the GNU Lesser General Public License
++ * version 3 along with OpenOffice.org.  If not, see
++ * <http://www.openoffice.org/license.html>
++ * for a copy of the LGPLv3 License.
++ *
++ ************************************************************************/
++#ifndef _I18N_CALENDAR_PERSIAN_HXX_
++#define _I18N_CALENDAR_PERSIAN_HXX_
++
++#include "calendar_gregorian.hxx"
++
++
++//	----------------------------------------------------
++//	class Calendar_Persian
++//	----------------------------------------------------
++
++namespace com { namespace sun { namespace star { namespace i18n {
++
++class Calendar_persian : public Calendar_gregorian
++{
++public:
++
++	// Constructors
++	Calendar_persian();
++
++protected:
++	void SAL_CALL mapToGregorian() throw(com::sun::star::uno::RuntimeException);
++	void SAL_CALL mapFromGregorian() throw(com::sun::star::uno::RuntimeException);
++
++};
++
++} } } }
++
++#endif
